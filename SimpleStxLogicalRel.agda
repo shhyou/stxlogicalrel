@@ -3,19 +3,22 @@
 module SimpleStxLogicalRel where
 
 open import Relation.Nullary
-  using (¬_ ; Dec ; yes ; no)
+  using (¬_ ; Dec ; _because_ ; yes ; no ; Irrelevant)
 open import Relation.Nullary.Decidable
   using (⌊_⌋)
 open import Relation.Binary.PropositionalEquality as PropEq
-  using (_≡_ ; _≢_ ; refl)
+  using (_≡_ ; _≢_ ; refl ; cong ; sym ; subst)
 
 open import Data.Nat as Nat using (ℕ ; zero ; suc)
-open import Data.Bool using (Bool ; true ; false)
-open import Data.Sum using (_⊎_ ; inj₁ ; inj₂)
+open import Data.Bool.Base using (Bool ; true ; false)
+open import Data.Empty using (⊥ ; ⊥-elim)
+open import Data.Sum.Base using (_⊎_ ; inj₁ ; inj₂)
 open import Data.Product
-  using (Σ ; Σ-syntax ; ∃ ; ∃-syntax ; _,_ ; _×_)
+  using (Σ ; Σ-syntax ; ∃ ; ∃-syntax ; proj₁ ; proj₂ ; _,_ ; _,′_ ; _×_)
 
-open import Data.List using ([] ; _∷_ ; List)
+open import Data.List.Base using ([] ; _∷_ ; List)
+
+open import Function.Base using (_∘_)
 
 infixr 25 _⇒_
 infixl 30 ⟨_×_⟩
@@ -26,6 +29,14 @@ infix 50 _·_
 infixr 50 _[_/0]
 
 infix 15 _⟶_
+
+truth-irrelevant : ∀ {P : Set} →
+  (dec1 dec2 : Dec P) →
+  ⌊ dec1 ⌋ ≡ ⌊ dec2 ⌋
+truth-irrelevant (false because ofp1) (false because ofp2) = refl
+truth-irrelevant (no ¬p)              (yes p)              = ⊥-elim (¬p p)
+truth-irrelevant (yes p)              (no ¬p)              = ⊥-elim (¬p p)
+truth-irrelevant (true because ofp1)  (true because ofp2)  = refl
 
 data Ty : Set where
   TNat : Ty
@@ -182,9 +193,9 @@ data _⟶_ : ∀ {τ} →
       {et ef : [] ⊢ τ} →
       `if (bool false) et ef ⟶ ef
 
-    R-β : ∀ {τa τr} →
-      {e : (τa ∷ []) ⊢ τr} →
-      {v : [] ⊢ τa} →
+    R-β : ∀ {τa τr v} →
+      {e  : (τa ∷ []) ⊢ τr} →
+      (⊢v : ⊢ τa ∋ v val) →
       (ƛ e) · v ⟶ e [ v /0]
 
     R-π₁ : ∀ {τ1 τ2 v1 v2} →
@@ -263,9 +274,115 @@ data _⟶*_ : ∀ {τ} →
 
     step : ∀ {τ} →
       {e1 e2 e3 : [] ⊢ τ} →
-      e1 ⟶* e2 →
-      e2 ⟶ e3 →
+      e1 ⟶ e2 →
+      e2 ⟶* e3 →
       e1 ⟶* e3
+
+⟶*-++ : ∀ {τ} →
+  {e1 e2 e3 : [] ⊢ τ} →
+  (e1 ⟶* e2) →
+  (e2 ⟶* e3) →
+  (e1 ⟶* e3)
+⟶*-++ stop                e2⟶*e3 = e2⟶*e3
+⟶*-++ (step e1⟶e4 e4⟶*e2) e2⟶*e3 = step e1⟶e4 (⟶*-++ e4⟶*e2 e2⟶*e3)
+
+value-does-not-reduce :
+  ∀ {τ v e} →
+    ⊢ τ ∋ v val →
+    ¬ (v ⟶ e)
+value-does-not-reduce (cons/v ⊢v1 ⊢v2) (E-consl v1⟶e) =
+  value-does-not-reduce ⊢v1 v1⟶e
+value-does-not-reduce (cons/v ⊢v1 ⊢v2) (E-consr ⊢v1′ v2⟶e) =
+  value-does-not-reduce ⊢v2 v2⟶e
+
+value-does-not-reduce* :
+  ∀ {τ v e} →
+    ⊢ τ ∋ v val →
+    (v→*e : v ⟶* e) →
+    Σ (v ≡ e) λ where refl → v→*e ≡ stop
+value-does-not-reduce* ⊢v stop =
+  refl , refl
+value-does-not-reduce* ⊢v (step v⟶e e⟶*e′)
+  with value-does-not-reduce ⊢v v⟶e
+... | ()
+
+⟶-is-deterministic :
+  ∀ {τ e1 e2} →
+    {e : [] ⊢ τ} →
+    e ⟶ e1 →
+    e ⟶ e2 →
+    e1 ≡ e2
+⟶-is-deterministic (R-eqv? n1=n2) (R-eqv? n1=n2′) =
+  cong bool (truth-irrelevant n1=n2 n1=n2′)
+⟶-is-deterministic R-sub  R-sub       = refl
+⟶-is-deterministic R-then R-then      = refl
+⟶-is-deterministic R-else R-else      = refl
+⟶-is-deterministic (R-β ⊢v) (R-β ⊢v′) =
+  refl
+⟶-is-deterministic (R-β ⊢v) (E-appr v⟶ea′) =
+  ⊥-elim (value-does-not-reduce ⊢v v⟶ea′)
+⟶-is-deterministic                   (R-π₁ ⊢v1 ⊢v2)              (R-π₁ ⊢v1′ ⊢v2′) = refl
+⟶-is-deterministic                   (R-π₁ ⊢v1 ⊢v2)              (E-π₁ v1v2⟶e′) =
+  ⊥-elim (value-does-not-reduce (cons/v ⊢v1 ⊢v2) v1v2⟶e′)
+⟶-is-deterministic                   (R-π₂ ⊢v1 ⊢v2)              (R-π₂ ⊢v1′ ⊢v2′) = refl
+⟶-is-deterministic                   (R-π₂ ⊢v1 ⊢v2)              (E-π₂ v1v2⟶e′) =
+  ⊥-elim (value-does-not-reduce (cons/v ⊢v1 ⊢v2) v1v2⟶e′)
+⟶-is-deterministic {e = _ ≐ e2}      (E-≐l e1⟶e1′)               (E-≐l e1⟶e2′) =
+  cong (_≐ e2) (⟶-is-deterministic e1⟶e1′ e1⟶e2′)
+⟶-is-deterministic {e = nat n ≐ _}   (E-≐r {e = e1} e1⟶e′)       (E-≐r e1⟶e′′) =
+  cong (nat n ≐_) (⟶-is-deterministic e1⟶e′ e1⟶e′′)
+⟶-is-deterministic {e2 = _ ∸ e2}     (E-∸l e1⟶e′)                (E-∸l e1⟶e′′) =
+  cong (_∸ e2) (⟶-is-deterministic e1⟶e′ e1⟶e′′)
+⟶-is-deterministic {e = nat n ∸ _}   (E-∸r {e = e1} e1⟶e′)       (E-∸r e1⟶e′′) =
+  cong (nat n ∸_) (⟶-is-deterministic e1⟶e′ e1⟶e′′)
+⟶-is-deterministic {e = `if _ et ef} (E-if ec⟶ec′)               (E-if ec⟶ec′′) =
+  cong (λ ec → `if ec et ef) (⟶-is-deterministic ec⟶ec′ ec⟶ec′′)
+⟶-is-deterministic {e = _ · ea}      (E-appl ef⟶e′)              (E-appl ef⟶ef′) =
+  cong (_· ea) (⟶-is-deterministic ef⟶e′ ef⟶ef′)
+⟶-is-deterministic {e = v · _}       (E-appr v⟶e′)               (R-β ⊢v) =
+  ⊥-elim (value-does-not-reduce ⊢v v⟶e′)
+⟶-is-deterministic {e = v · _}       (E-appr ea⟶e′)              (E-appr ea⟶e′′) =
+  cong (v ·_) (⟶-is-deterministic ea⟶e′ ea⟶e′′)
+⟶-is-deterministic {e = cons _ e2}   (E-consl e1⟶e1′)            (E-consl e1⟶e2′) =
+  cong (λ e1 → cons e1 e2) (⟶-is-deterministic e1⟶e1′ e1⟶e2′)
+⟶-is-deterministic {e = cons _ e2}   (E-consl v⟶e′)              (E-consr ⊢v e2⟶e′′) =
+  ⊥-elim (value-does-not-reduce ⊢v v⟶e′)
+⟶-is-deterministic {e = cons v _}    (E-consr ⊢v {e = e2} e2⟶e′) (E-consl v⟶e′′) =
+  ⊥-elim (value-does-not-reduce ⊢v v⟶e′′)
+⟶-is-deterministic {e = cons v _}    (E-consr ⊢v {e = e2} e2⟶e′) (E-consr ⊢v′ e2⟶e′′) =
+  cong (cons v) (⟶-is-deterministic e2⟶e′ e2⟶e′′)
+⟶-is-deterministic                   (E-π₁ v1v2⟶e′)              (R-π₁ ⊢v1 ⊢v2) =
+  ⊥-elim (value-does-not-reduce (cons/v ⊢v1 ⊢v2) v1v2⟶e′)
+⟶-is-deterministic                   (E-π₁ e⟶e′)                 (E-π₁ e⟶e′′) =
+  cong π₁ (⟶-is-deterministic e⟶e′ e⟶e′′)
+⟶-is-deterministic                   (E-π₂ v1v2⟶e′)              (R-π₂ ⊢v1 ⊢v2) =
+  ⊥-elim (value-does-not-reduce (cons/v ⊢v1 ⊢v2) v1v2⟶e′)
+⟶-is-deterministic                   (E-π₂ e⟶e′)                 (E-π₂ e⟶e′′) =
+  cong π₂ (⟶-is-deterministic e⟶e′ e⟶e′′)
+
+⟶*-is-deterministic : ∀ {τ} →
+  {e e1 e2 : [] ⊢ τ} →
+  e ⟶* e1 →
+  e ⟶* e2 →
+  (e1 ⟶* e2) ⊎ (e2 ⟶* e1)
+⟶*-is-deterministic stop               e⟶*e2 = inj₁ e⟶*e2
+⟶*-is-deterministic (step e⟶e3 e3⟶*e1) stop  = inj₂ (step e⟶e3 e3⟶*e1)
+⟶*-is-deterministic (step e⟶e3 e3⟶*e1) (step e⟶e4 e4⟶*e2)
+  with ⟶-is-deterministic e⟶e3 e⟶e4
+... | refl = ⟶*-is-deterministic e3⟶*e1 e4⟶*e2
+
+⟶*v-is-deterministic : ∀ {τ v1 v2} →
+  {e : [] ⊢ τ} →
+  (⊢v1 : ⊢ τ ∋ v1 val) →
+  (⊢v1 : ⊢ τ ∋ v2 val) →
+  e ⟶* v1 →
+  e ⟶* v2 →
+  v1 ≡ v2
+⟶*v-is-deterministic ⊢v1 ⊢v2 e⟶*v1 e⟶*v2 with ⟶*-is-deterministic e⟶*v1 e⟶*v2
+... | inj₁ stop = refl
+... | inj₁ (step v1⟶e1 e1⟶*v2) = ⊥-elim (value-does-not-reduce ⊢v1 v1⟶e1)
+... | inj₂ stop = refl
+... | inj₂ (step v2⟶e2 e2⟶*v1) = ⊥-elim (value-does-not-reduce ⊢v2 v2⟶e2)
 
 Progress : ∀ {τ} →
   (e : [] ⊢ τ) →
@@ -291,7 +408,7 @@ Progress (ef · ea)      with Progress ef
 ... | inj₂ (_ , ef⟶ef′) = inj₂ (_ , E-appl ef⟶ef′)
 ... | inj₁ (ƛ/v eb)     with Progress ea
 ... | inj₂ (_ , ea⟶ea′) = inj₂ (_ , E-appr ea⟶ea′)
-... | inj₁ ⊢v2          = inj₂ (_ , R-β)
+... | inj₁ ⊢v2          = inj₂ (_ , R-β ⊢v2)
 Progress (cons e1 e2)   with Progress e1
 ... | inj₂ (_ , e1⟶e1′) = inj₂ (_ , E-consl e1⟶e1′)
 ... | inj₁ ⊢v1          with Progress e2
