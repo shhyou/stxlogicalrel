@@ -428,3 +428,118 @@ Progress (π₁ e)         with Progress e
 Progress (π₂ e)         with Progress e
 ... | inj₁ (cons/v ⊢v1 ⊢v2) = inj₂ (_ , R-π₂ ⊢v1 ⊢v2)
 ... | inj₂ (_ , e⟶e′) = inj₂ (_ , E-π₂ e⟶e′)
+
+⌊_⌋val : ∀ {τ v} → ⊢ τ ∋ v val → [] ⊢ τ
+⌊ nat/v n ⌋val         = nat n
+⌊ bool/v b ⌋val        = bool b
+⌊ ƛ/v e ⌋val           = ƛ e
+⌊ cons/v ⊢v1 ⊢v2 ⌋val = cons ⌊ ⊢v1 ⌋val ⌊ ⊢v2 ⌋val
+
+record Value (τ : Ty) : Set where
+  constructor
+    [_,_]val
+  field
+    term    : [] ⊢ τ
+    isValue : ⊢ τ ∋ term val
+
+data _~id_ :
+  ∀ {τ v1 v2} →
+  ⊢ τ ∋ v1 val →
+  ⊢ τ ∋ v2 val →
+  Set where
+    nat-eq  : ∀ {n} → nat/v n ~id nat/v n
+    bool-eq : ∀ {b} → bool/v b ~id bool/v b
+
+
+ℰ⟦_⟧∋⟨_,_⟩ : (τ : Ty) → (e1 e2 : [] ⊢ τ) → Set
+𝒱⟦_⟧∋⟨_,_⟩ : (τ : Ty) → ∀ {v1 v2} → ⊢ τ ∋ v1 val → ⊢ τ ∋ v2 val → Set
+
+ℰ⟦ τ ⟧∋⟨ e1 , e2 ⟩ =
+  ∀ {v1} →
+    (⊢v1 : ⊢ τ ∋ v1 val) →
+    e1 ⟶* v1 →
+    ∃[ value ]
+      (e2 ⟶* Value.term value) ×
+      (𝒱⟦ τ ⟧∋⟨ ⊢v1 , Value.isValue value ⟩)
+
+𝒱⟦ TNat  ⟧∋⟨ ⊢n1 , ⊢n2 ⟩ = ⊢n1 ~id ⊢n2
+𝒱⟦ TBool ⟧∋⟨ ⊢b1 , ⊢b2 ⟩ = ⊢b1 ~id ⊢b2
+𝒱⟦ τa ⇒ τr ⟧∋⟨ ƛ/v e1 , ƛ/v e2 ⟩ =
+  ∀ {va1 va2} →
+    (⊢va1 : ⊢ τa ∋ va1 val) →
+    (⊢va2 : ⊢ τa ∋ va2 val) →
+    𝒱⟦ τa ⟧∋⟨ ⊢va1 , ⊢va2 ⟩ →
+    ℰ⟦ τr ⟧∋⟨ e1 [ va1 /0] , e2 [ va2 /0] ⟩
+𝒱⟦ ⟨ τ1 × τ2 ⟩ ⟧∋⟨ cons/v ⊢v1 ⊢v2 , cons/v ⊢v1′ ⊢v2′ ⟩ =
+  𝒱⟦ τ1 ⟧∋⟨ ⊢v1 , ⊢v1′ ⟩ × 𝒱⟦ τ2 ⟧∋⟨ ⊢v2 , ⊢v2′ ⟩
+ 
+data 𝒢[_] : (Γ : Ctxt) → Set where
+    ·g : 𝒢[ [] ]
+    [_~_by_]∷_ : ∀ {Γ τ v1 v2} →
+      (⊢v1 : ⊢ τ ∋ v1 val) →
+      (⊢v2 : ⊢ τ ∋ v2 val) →
+      𝒱⟦ τ ⟧∋⟨ ⊢v1 , ⊢v2 ⟩ →
+      (γ : 𝒢[ Γ ]) →
+      𝒢[ τ ∷ Γ ]
+
+closing : ∀ {Γ} →
+  ({A : Set} → A × A → A) →
+  (γ : 𝒢[ Γ ]) →
+  ∀ {τ} →
+    τ ∈/t Γ →
+    [] ⊢ τ
+closing projᵢ ([ ⊢v1 ~ ⊢v2 by v1𝒱v2 ]∷ γ) here/t        = projᵢ (⌊ ⊢v1 ⌋val ,′ ⌊ ⊢v2 ⌋val)
+closing projᵢ ([ ⊢v1 ~ ⊢v2 by v1𝒱v2 ]∷ γ) (there/t τ∈Γ) = closing projᵢ γ τ∈Γ
+
+closing-subst1 : ∀ {Γ τ} →
+  (γ : 𝒢[ Γ ]) →
+  (e : Γ ⊢ τ) → [] ⊢ τ
+closing-subst1 γ e = term-subst e (closing proj₁ γ)
+
+closing-subst2 : ∀ {Γ τ} →
+  (γ : 𝒢[ Γ ]) →
+  (e : Γ ⊢ τ) → [] ⊢ τ
+closing-subst2 γ e = term-subst e (closing proj₂ γ)
+
+-- term-subst (term-subst e (term-ext ̌ϑ)) (singleton-context v) ≡
+-- term-subst e (v ∷ ϑ)
+
+_⊢_∋_~_ : (Γ : Ctxt) → (τ : Ty) → Γ ⊢ τ → Γ ⊢ τ → Set
+(Γ ⊢ τ ∋ e1 ~ e2) =
+  (γ : 𝒢[ Γ ]) →
+  ℰ⟦ τ ⟧∋⟨ closing-subst1 γ e1 , closing-subst2 γ e2 ⟩
+
+compatible-nat : ∀ {Γ n} →
+  Γ ⊢ TNat ∋ (nat n) ~ (nat n)
+compatible-nat γ (nat/v n) n⟶*v1 = [ _ , nat/v n ]val , n⟶*v1 , nat-eq
+
+compatible-bool : ∀ {Γ b} →
+  Γ ⊢ TBool ∋ (bool b) ~ (bool b)
+compatible-bool γ (bool/v b) b⟶*v1 = [ _ , bool/v b ]val , b⟶*v1 , bool-eq
+
+compatible-lam : ∀ {Γ τa τr eb eb′} →
+  (τa ∷ Γ) ⊢ τr ∋ eb ~ eb′ →
+  Γ ⊢ (τa ⇒ τr) ∋ (ƛ eb) ~ (ƛ eb′)
+compatible-lam {eb′ = eb′} eb~eb′ γ (ƛ/v e1) γ1⟨ƛeb⟩⟶*v1
+  with proj₁ (value-does-not-reduce* (ƛ/v _) γ1⟨ƛeb⟩⟶*v1)
+... | refl =
+  [ _ , ƛ/v _ ]val , stop , λ where
+    ⊢va ⊢va′ va𝒱va′ {v1′} ⊢v1′ eb[va1/0]⟶*v1′ →
+      {! eb~eb′ ([ ⊢va ~ ⊢va′ by va𝒱va′ ]∷ γ) ⊢v1′  !}
+
+fundamental : ∀ {Γ} →
+  (τ : Ty) →
+  (e : Γ ⊢ τ) →
+  (γ : 𝒢[ Γ ]) →
+  ℰ⟦ τ ⟧∋⟨ closing-subst1 γ e , closing-subst2 γ e ⟩
+fundamental .TNat       (nat n)        γ = compatible-nat γ
+fundamental .TBool      (e1 ≐ e2)      γ = {!   !}
+fundamental .TNat       (e1 ∸ e2)      γ = {!   !}
+fundamental .TBool      (bool b)       γ = compatible-bool γ
+fundamental τ           (`if ec et ef) γ = {!   !}
+fundamental τ           (` y)          γ = {!   !}
+fundamental (τa ⇒ τr)   (ƛ e)          γ = {!   !}
+fundamental τr          (ef · ea)      γ = {!   !}
+fundamental ⟨ τ1 × τ2 ⟩ (cons e1 e2)   γ = {!   !}
+fundamental τ1          (π₁ e)         γ = {!   !}
+fundamental τ2          (π₂ e)         γ = {!   !}
