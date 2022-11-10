@@ -14,7 +14,7 @@ open import Data.Bool.Base using (Bool ; true ; false)
 open import Data.Empty using (⊥ ; ⊥-elim)
 open import Data.Sum.Base using (_⊎_ ; inj₁ ; inj₂)
 open import Data.Product
-  using (Σ ; Σ-syntax ; ∃ ; ∃-syntax ; proj₁ ; proj₂ ; _,_ ; _,′_ ; _×_)
+  using (Σ ; Σ-syntax ; ∃ ; ∃-syntax ; proj₁ ; proj₂ ; _,_ ; _,′_ ; _×_ ; -,_)
 
 open import Data.List.Base using ([] ; _∷_ ; List)
 
@@ -99,6 +99,7 @@ data _⊢_ :
       (e1 : Γ ⊢ τ1) →
       (e2 : Γ ⊢ τ2) →
       Γ ⊢ ⟨ τ1 × τ2 ⟩
+
     π₁ : ∀ {Γ τ1 τ2} →
       Γ ⊢ ⟨ τ1 × τ2 ⟩ →
       Γ ⊢ τ1
@@ -118,7 +119,7 @@ rename : ∀ {Γ′ Γ τ} →
   (ren : ∀ {τ′} → τ′ ∈/t Γ → τ′ ∈/t Γ′) →
   Γ′ ⊢ τ
 rename (nat n) ren        = nat n
-rename (e1 ≐ e2) ren      = rename e2 ren ≐ rename e2 ren
+rename (e1 ≐ e2) ren      = rename e1 ren ≐ rename e2 ren
 rename (e1 ∸ e2) ren      = rename e1 ren ∸ rename e2 ren
 rename (bool b) ren       = bool b
 rename (`if ec et ef) ren = `if (rename ec ren) (rename et ren) (rename ef ren)
@@ -129,29 +130,36 @@ rename (cons e1 e2) ren   = cons (rename e1 ren) (rename e2 ren)
 rename (π₁ e) ren         = π₁ (rename e ren)
 rename (π₂ e) ren         = π₂ (rename e ren)
 
-tsubst : ∀ {Γ′ Γ τ} →
+term-ext : ∀ {τ Γ Γ′} →
+  (ϑ : ∀ {τ′} → τ′ ∈/t Γ → Γ′ ⊢ τ′) →
+  ∀ {τ′} → τ′ ∈/t (τ ∷ Γ) → (τ ∷ Γ′) ⊢ τ′
+term-ext ϑ here/t        = ` here/t
+term-ext ϑ (there/t τ∈Γ) = rename (ϑ τ∈Γ) there/t
+
+term-subst : ∀ {Γ′ Γ τ} →
   Γ ⊢ τ →
   (ϑ : ∀ {τ′} → τ′ ∈/t Γ → Γ′ ⊢ τ′) →
   Γ′ ⊢ τ
-tsubst (nat n) ϑ        = nat n
-tsubst (e1 ≐ e2) ϑ      = tsubst e2 ϑ ≐ tsubst e2 ϑ
-tsubst (e1 ∸ e2) ϑ      = tsubst e1 ϑ ∸ tsubst e2 ϑ
-tsubst (bool b) ϑ       = bool b
-tsubst (`if ec et ef) ϑ = `if (tsubst ec ϑ) (tsubst et ϑ) (tsubst ef ϑ)
-tsubst (` y) ϑ          = ϑ y
-tsubst (ƛ e) ϑ          = ƛ tsubst e (λ where
-  here/t → ` here/t
-  (there/t τ∈Γ) → rename (ϑ τ∈Γ) there/t)
-tsubst (ef · ea) ϑ      = tsubst ef ϑ · tsubst ea ϑ
-tsubst (cons e1 e2) ϑ   = cons (tsubst e1 ϑ) (tsubst e2 ϑ)
-tsubst (π₁ e) ϑ         = π₁ (tsubst e ϑ)
-tsubst (π₂ e) ϑ         = π₂ (tsubst e ϑ)
+term-subst (nat n) ϑ        = nat n
+term-subst (e1 ≐ e2) ϑ      = term-subst e1 ϑ ≐ term-subst e2 ϑ
+term-subst (e1 ∸ e2) ϑ      = term-subst e1 ϑ ∸ term-subst e2 ϑ
+term-subst (bool b) ϑ       = bool b
+term-subst (`if ec et ef) ϑ = `if (term-subst ec ϑ) (term-subst et ϑ) (term-subst ef ϑ)
+term-subst (` y) ϑ          = ϑ y
+term-subst (ƛ e) ϑ          = ƛ term-subst e (term-ext ϑ)
+term-subst (ef · ea) ϑ      = term-subst ef ϑ · term-subst ea ϑ
+term-subst (cons e1 e2) ϑ   = cons (term-subst e1 ϑ) (term-subst e2 ϑ)
+term-subst (π₁ e) ϑ         = π₁ (term-subst e ϑ)
+term-subst (π₂ e) ϑ         = π₂ (term-subst e ϑ)
+
+singleton-context : ∀ {τ} → [] ⊢ τ → ∀ {τ′} → τ′ ∈/t (τ ∷ []) → [] ⊢ τ′
+singleton-context e here/t = e
 
 _[_/0] : ∀ {τ τ′} →
   (τ ∷ []) ⊢ τ′ →
   (v : [] ⊢ τ) →
   [] ⊢ τ′
-_[_/0] e v = tsubst e (λ where here/t → v)
+_[_/0] e v = term-subst e (singleton-context v)
 
 data ⊢_∋_val :
   (τ : Ty) →
